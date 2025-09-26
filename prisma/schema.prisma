@@ -9,15 +9,372 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// Example User model
+// Enums
+enum UserType {
+  vendor
+  distributor
+}
+
+enum VerificationStatus {
+  pending
+  verified
+  rejected
+}
+
+enum OnboardingStatus {
+  not_started
+  in_progress
+  completed
+}
+
+enum ProductRequestStatus {
+  open
+  matched
+  closed
+}
+
+enum PartnershipStatus {
+  pending
+  accepted
+  contract_sent
+  contract_signed
+  active
+  terminated
+}
+
+enum NotificationType {
+  product_request
+  partnership_update
+  contract
+  training
+  system
+}
+
+enum TrainingStatus {
+  not_started
+  in_progress
+  completed
+}
+
+enum AlertType {
+  contract_pending
+  training_incomplete
+  onboarding_stalled
+  partnership_request
+}
+
+enum AlertPriority {
+  low
+  medium
+  high
+}
+
+// Models
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  userType     UserType @map("user_type")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  phone        String?
+  companyName  String?  @map("company_name")
+  isVerified   Boolean  @default(false) @map("is_verified")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  lastLogin    DateTime? @map("last_login")
+
+  // Relations
+  vendor            Vendor?
+  distributor       Distributor?
+  notifications     Notification[]
+  automatedAlerts   AutomatedAlert[]
+  activityLogs      ActivityLog[]
+  systemSettings    SystemSetting[]
+
+  @@map("users")
+}
+
+model Vendor {
+  id                 Int                @id @default(autoincrement())
+  userId             Int                @unique @map("user_id")
+  companyDescription String?            @map("company_description")
+  businessLicense    String?            @map("business_license")
+  taxId              String?            @map("tax_id")
+  address            String?
+  website            String?
+  verificationStatus VerificationStatus @default(pending) @map("verification_status")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id])
+  productRequests   ProductRequest[]
+  partnerships      Partnership[]
+  contractTemplates ContractTemplate[]
+  trainingModules   TrainingModule[]
+  dashboardStats    DashboardStats[]
+
+  @@map("vendors")
+}
+
+model Distributor {
+  id                   Int                @id @default(autoincrement())
+  userId               Int                @unique @map("user_id")
+  experienceYears      Int?               @map("experience_years")
+  coverageAreas        String?            @map("coverage_areas")
+  distributionChannels String?            @map("distribution_channels")
+  portfolioSize        Int?               @map("portfolio_size")
+  verificationStatus   VerificationStatus @default(pending) @map("verification_status")
+  onboardingStatus     OnboardingStatus   @default(not_started) @map("onboarding_status")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  user             User               @relation(fields: [userId], references: [id])
+  partnerships     Partnership[]
+  trainingProgress TrainingProgress[]
+
+  @@map("distributors")
+}
+
+model ProductRequest {
+  id                 Int                  @id @default(autoincrement())
+  vendorId           Int                  @map("vendor_id")
+  title              String
+  productDescription String               @map("product_description")
+  productCategory    String?              @map("product_category")
+  targetMarket       String?              @map("target_market")
+  commissionRate     Decimal?             @map("commission_rate") @db.Decimal(5, 2)
+  requirements       String?
+  status             ProductRequestStatus @default(open)
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  // Relations
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
+  partnerships Partnership[]
+
+  @@map("product_requests")
+}
+
+model Partnership {
+  id               Int               @id @default(autoincrement())
+  vendorId         Int               @map("vendor_id")
+  distributorId    Int               @map("distributor_id")
+  productRequestId Int               @map("product_request_id")
+  status           PartnershipStatus @default(pending)
+  acceptedAt       DateTime?         @map("accepted_at")
+  contractSentAt   DateTime?         @map("contract_sent_at")
+  contractSignedAt DateTime?         @map("contract_signed_at")
+  activatedAt      DateTime?         @map("activated_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  vendor           Vendor             @relation(fields: [vendorId], references: [id])
+  distributor      Distributor        @relation(fields: [distributorId], references: [id])
+  productRequest   ProductRequest     @relation(fields: [productRequestId], references: [id])
+  contracts        Contract[]
+  distributorAccess DistributorAccess[]
+  trainingProgress TrainingProgress[]
+
+  @@map("partnerships")
+}
+
+model Contract {
+  id                   Int      @id @default(autoincrement())
+  partnershipId        Int      @map("partnership_id")
+  contractTemplateId   Int      @map("contract_template_id")
+  welcomeLinkToken     String?  @unique @map("welcome_link_token")
+  commissionRate       Decimal  @map("commission_rate") @db.Decimal(5, 2)
+  termsAndConditions   String   @map("terms_and_conditions")
+  servicesDescription  String?  @map("services_description")
+  licenseDetails       String?  @map("license_details")
+  obligations          String?
+  isSigned             Boolean  @default(false) @map("is_signed")
+  signedAt             DateTime? @map("signed_at")
+  signedByIp           String?  @map("signed_by_ip")
+  digitalSignature     String?  @map("digital_signature")
+  expiresAt            DateTime? @map("expires_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  partnership      Partnership      @relation(fields: [partnershipId], references: [id])
+  contractTemplate ContractTemplate @relation(fields: [contractTemplateId], references: [id])
+
+  @@map("contracts")
+}
+
+model ContractTemplate {
+  id              Int      @id @default(autoincrement())
+  vendorId        Int      @map("vendor_id")
+  name            String
+  templateContent String   @map("template_content")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vendor    Vendor     @relation(fields: [vendorId], references: [id])
+  contracts Contract[]
+
+  @@map("contract_templates")
+}
+
+model Notification {
+  id          Int              @id @default(autoincrement())
+  userId      Int              @map("user_id")
+  title       String
+  message     String
+  type        NotificationType
+  isRead      Boolean          @default(false) @map("is_read")
+  relatedId   Int?             @map("related_id")
+  relatedType String?          @map("related_type")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  readAt      DateTime?        @map("read_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model DistributorAccess {
+  id                     Int      @id @default(autoincrement())
+  partnershipId          Int      @map("partnership_id")
+  slackWorkspaceUrl      String?  @map("slack_workspace_url")
+  slackInviteSent        Boolean  @default(false) @map("slack_invite_sent")
+  slackInviteAccepted    Boolean  @default(false) @map("slack_invite_accepted")
+  portalUsername         String?  @map("portal_username")
+  portalTempPassword     String?  @map("portal_temp_password")
+  portalPasswordChanged  Boolean  @default(false) @map("portal_password_changed")
+  accessGrantedAt        DateTime? @map("access_granted_at")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  partnership Partnership @relation(fields: [partnershipId], references: [id])
+
+  @@map("distributor_access")
+}
+
+model TrainingModule {
+  id                Int      @id @default(autoincrement())
+  vendorId          Int      @map("vendor_id")
+  title             String
+  description       String?
+  contentUrl        String   @map("content_url")
+  orderSequence     Int      @map("order_sequence")
+  estimatedDuration Int?     @map("estimated_duration")
+  isMandatory       Boolean  @default(true) @map("is_mandatory")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vendor           Vendor             @relation(fields: [vendorId], references: [id])
+  trainingProgress TrainingProgress[]
+
+  @@map("training_modules")
+}
+
+model TrainingProgress {
+  id                 Int            @id @default(autoincrement())
+  distributorId      Int            @map("distributor_id")
+  trainingModuleId   Int            @map("training_module_id")
+  partnershipId      Int            @map("partnership_id")
+  status             TrainingStatus @default(not_started)
+  progressPercentage Int            @default(0) @map("progress_percentage")
+  startedAt          DateTime?      @map("started_at")
+  completedAt        DateTime?      @map("completed_at")
+  timeSpent          Int?           @map("time_spent")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  distributor     Distributor     @relation(fields: [distributorId], references: [id])
+  trainingModule  TrainingModule  @relation(fields: [trainingModuleId], references: [id])
+  partnership     Partnership     @relation(fields: [partnershipId], references: [id])
+
+  @@map("training_progress")
+}
+
+model DashboardStats {
+  id                      Int      @id @default(autoincrement())
+  vendorId                Int      @map("vendor_id")
+  totalDistributors       Int      @default(0) @map("total_distributors")
+  availableDistributors   Int      @default(0) @map("available_distributors")
+  assignedDistributors    Int      @default(0) @map("assigned_distributors")
+  pendingContracts        Int      @default(0) @map("pending_contracts")
+  signedContracts         Int      @default(0) @map("signed_contracts")
+  trainingCompletionRate  Decimal  @default(0) @map("training_completion_rate") @db.Decimal(5, 2)
+  lastCalculatedAt        DateTime @default(now()) @map("last_calculated_at")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@map("dashboard_stats")
+}
+
+model AutomatedAlert {
+  id           Int           @id @default(autoincrement())
+  userId       Int           @map("user_id")
+  alertType    AlertType     @map("alert_type")
+  title        String
+  message      String
+  relatedId    Int?          @map("related_id")
+  relatedType  String?       @map("related_type")
+  priority     AlertPriority @default(medium)
+  isSent       Boolean       @default(false) @map("is_sent")
+  sentAt       DateTime?     @map("sent_at")
+  isDismissed  Boolean       @default(false) @map("is_dismissed")
+  dismissedAt  DateTime?     @map("dismissed_at")
+  scheduledFor DateTime?     @map("scheduled_for")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("automated_alerts")
+}
+
+model ActivityLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    Int      @map("entity_id")
+  description String?
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+model SystemSetting {
+  id           Int      @id @default(autoincrement())
+  settingKey   String   @unique @map("setting_key")
+  settingValue String   @map("setting_value")
+  description  String?
+  updatedBy    Int?     @map("updated_by")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  updatedByUser User? @relation(fields: [updatedBy], references: [id])
+
+  @@map("system_settings")
 }
