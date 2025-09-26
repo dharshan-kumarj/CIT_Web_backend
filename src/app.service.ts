@@ -6,18 +6,21 @@ export class AppService {
   constructor(private prisma: PrismaService) {}
 
   getHello(): string {
-    return 'Hello World!';
+    return 'Hello World! CIT Backend API is running.';
   }
 
   async getUsers() {
-    return this.prisma.user.findMany();
-  }
-
-  async createUser(email: string, name?: string) {
-    return this.prisma.user.create({
-      data: {
-        email,
-        name,
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        userType: true,
+        firstName: true,
+        lastName: true,
+        companyName: true,
+        isVerified: true,
+        isActive: true,
+        createdAt: true,
       },
     });
   }
