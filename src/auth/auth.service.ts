@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
 import { RedisService } from '../redis.service';
 import * as bcrypt from 'bcrypt';
-import { LoginDto, LoginResponseDto } from './auth.dto';
+import { LoginDto, LoginResponseDto, RegisterDto, RegisterResponseDto } from './auth.dto';
 import { UserType } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -158,6 +158,79 @@ export class AuthService {
   async hashPassword(password: string): Promise<string> {
     const saltRounds = 12;
     return bcrypt.hash(password, saltRounds);
+  }
+
+  async register(registerDto: RegisterDto, userType: UserType): Promise<RegisterResponseDto> {
+    // Check if user already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: registerDto.email },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException('User with this email already exists');
+    }
+
+    // Hash password
+    const passwordHash = await this.hashPassword(registerDto.password);
+
+    // Create user
+    const user = await this.prisma.user.create({
+      data: {
+        email: registerDto.email,
+        passwordHash,
+        userType,
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        companyName: registerDto.companyName,
+        phone: registerDto.phone,
+        isVerified: false, // Users need to verify email
+        isActive: true,
+        createdAt: new Date(),
+      },
+    });
+
+    // Create profile based on user type
+    if (userType === UserType.vendor) {
+      await this.prisma.vendor.create({
+        data: {
+          userId: user.id,
+          companyDescription: '',
+          verificationStatus: 'pending',
+        },
+      });
+    } else if (userType === UserType.distributor) {
+      await this.prisma.distributor.create({
+        data: {
+          userId: user.id,
+          verificationStatus: 'pending',
+          onboardingStatus: 'not_started',
+        },
+      });
+    }
+
+    // Log activity
+    await this.prisma.activityLog.create({
+      data: {
+        userId: user.id,
+        action: 'REGISTER',
+        entityType: 'USER',
+        entityId: user.id,
+        description: `${userType} registration successful`,
+        createdAt: new Date(),
+      },
+    });
+
+    return {
+      message: 'Registration successful',
+      user: {
+        id: user.id,
+        email: user.email,
+        userType: user.userType,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        companyName: user.companyName || undefined,
+      },
+    };
   }
 
   // Verify JWT token

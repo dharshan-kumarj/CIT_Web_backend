@@ -9,7 +9,7 @@ import {
   Param 
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto, LoginResponseDto, LogoutDto } from './auth.dto';
+import { LoginDto, LoginResponseDto, LogoutDto, RegisterDto, RegisterResponseDto } from './auth.dto';
 import { UserType } from '@prisma/client';
 
 @Controller('auth/vendor')
@@ -22,6 +22,14 @@ export class VendorAuthController {
     @Body(ValidationPipe) loginDto: LoginDto,
   ): Promise<LoginResponseDto> {
     return this.authService.login(loginDto, UserType.vendor);
+  }
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Body(ValidationPipe) registerDto: RegisterDto,
+  ): Promise<RegisterResponseDto> {
+    return this.authService.register(registerDto, UserType.vendor);
   }
 
   @Post('logout')
